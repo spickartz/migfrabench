@@ -91,7 +91,6 @@ module Migfrabench
         evaluation[evaluation.keys[0]].sort.map { |figure, duration| tr_header << figure }
 
         table << tr_header
-        table.add_separator
         evaluation.sort.map do |vm_name, results|
           cur_results = []
           cur_results << vm_name
@@ -100,7 +99,7 @@ module Migfrabench
         end
       end
 
-      table.style = {alignment: :right}
+      table.style = {alignment: :right, border_x: "", border_i: "", border_y: ""}
       table
     end
 
