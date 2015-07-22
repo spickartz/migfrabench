@@ -1,0 +1,23 @@
+request_topic: "fast/migfra/<hostname>/task"
+response_topic: "fast/migfra/<hostname>/result"
+rounds: 2
+period: 60
+bench_config:
+  - vm-configuration:
+      vm-name: centos710
+      vcpus: 1
+      memory: 1048576
+    source: pandora3
+    destination: pandora4
+    application: "pingping_multi -r -1"
+    procs-per-vm: 4 
+    live-migration: false
+  - vm-configuration:
+      vm-name: centos710
+      vcpus: 1
+      memory: 1048576
+    source: pandora2
+    destination: pandora1
+    application: "pingping_multi -r -1"
+    procs-per-vm: 4 
+    live-migration: false

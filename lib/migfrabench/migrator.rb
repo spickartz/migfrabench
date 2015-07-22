@@ -1,10 +1,10 @@
 require 'yaml'
 
 module Migfrabench
-  # the CLI
   class Migrator 
     def initialize(hostname='devon', config_file, rounds)
       @config_yaml = YAML.load_file(config_file)
+      @communicator = Migfrabench::Communicator.new(hostname)
 
 #      @mqtt_client = MQTT::Client.connect(hostname)
 
@@ -17,27 +17,17 @@ module Migfrabench
     end
 
     def start
-#      @mqtt_client.publish('mytopic', 'hello world')
+      # start the VMs
       @start_tasks.each do |topic, message|
-        puts topic
-        puts message.to_yaml
-        puts ""
-      end
-      @stop_tasks.each do |topic, message|
-        puts topic
-        puts message.to_yaml
-        puts ""
-      end
-      
-      @migration_tasks.each do |topic, message|
-        puts topic
-        puts message.to_yaml
-        puts ""
+        @communicator.pub(message.to_yaml, topic)
       end
 
-      puts "###########"
-      puts @migration_rounds
-      puts "###########"
+      
+
+      # stop the VMs
+      @stop_tasks.each do |topic, message|
+        @communicator.pub(message.to_yaml, topic)
+      end
     end
 
     private

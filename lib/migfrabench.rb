@@ -1,5 +1,6 @@
 require "migfrabench/version"
 require "migfrabench/migrator"
+require "migfrabench/communicator"
 
 require 'thor'
 require 'colorize'
