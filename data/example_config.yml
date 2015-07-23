@@ -1,7 +1,7 @@
 request_topic: "fast/migfra/<hostname>/task"
 response_topic: "fast/migfra/<hostname>/result"
-rounds: 2
-period: 60
+rounds: 5
+period: 2
 bench_config:
   - vm-configuration:
       vm-name: centos710
@@ -13,7 +13,7 @@ bench_config:
     procs-per-vm: 4 
     live-migration: false
   - vm-configuration:
-      vm-name: centos710
+      vm-name: yyyyyy 
       vcpus: 1
       memory: 1048576
     source: pandora2
