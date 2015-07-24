@@ -1,12 +1,17 @@
 require 'yaml'
 require 'celluloid'
+require 'securerandom'
+require 'thread_safe'
+require 'celluloid/autostart'
 
 module Migfrabench
   class Migrator 
-    def initialize(hostname='devon', config_file, rounds)
-      @communicator = Migfrabench::Communicator.new(hostname)
+    def initialize(config_file, rounds)
       # load config
       @config_yaml = YAML.load_file(config_file)
+
+      @msg_broker = @config_yaml['mqtt_broker']
+      @communicator = Migfrabench::Communicator.new(@msg_broker)
 
       # create tasks
       create_migfra_tasks(@config_yaml)
@@ -16,10 +21,13 @@ module Migfrabench
         @migration_rounds = rounds 
       end
       @period = @config_yaml['period']
-      @hostname = hostname
 
-      # create requester/receiver
-#      @requester = Receiver.new(hostname)
+      # create result hash
+      @migration_times = ThreadSafe::Hash.new
+
+      # create requester/receiver and condition variable
+      @requester = Requester.new(@msg_broker, @migration_rounds, @period, @migration_times)
+      @receiver = Receiver.new(@msg_broker, @config_yaml['response_topic'], @migration_times)
     end
 
     def start
@@ -28,7 +36,12 @@ module Migfrabench
         @communicator.pub(message.to_yaml, topic)
       end
 
-      Requester.new(@hostname, @migration_rounds, @period).run(@migration_tasks)
+      # start requester/receiver
+      @requester.async.run(@migration_tasks)
+      @receiver.run
+
+      @requester.terminate
+      @receiver.terminate
 
       # stop the VMs
       @stop_tasks.each do |topic, message|
@@ -62,6 +75,7 @@ module Migfrabench
         # extract migrate task
         @migration_tasks[request_topic] ||= {} 
         @migration_tasks[request_topic]['task'] ||= 'migrate vm'
+        @migration_tasks[request_topic]['id'] ||= ''
         @migration_tasks[request_topic]['vm-name'] = vm['vm-configuration']['vm-name']
         @migration_tasks[request_topic]['destination'] = vm['destination']
         @migration_tasks[request_topic]['parameter'] = {}
@@ -70,40 +84,70 @@ module Migfrabench
       end
     end
 
-    class Actor
+    class Worker
       include Celluloid
+      include Celluloid::Notifications
       
-      def initialize(hostname)
-        @communicator = Migfrabench::Communicator.new(hostname)
+      def initialize(msg_broker, migration_times)
+        @communicator = Migfrabench::Communicator.new(msg_broker)
+        @work_done = Celluloid::Condition.new
+        @migration_times = migration_times
       end
     end
 
-    class Requester < Actor
-      @@id ||= 0
-      def initialize(hostname, rounds, period)
-        super(hostname)
+    class Requester < Worker
+      def initialize(msg_broker, rounds, period, migration_times)
+        super(msg_broker, migration_times)
 
         @rounds = rounds
         @period = period
-        @requests_processed = Celluloid::Condition.new
-
-        @my_id = @@id
-        @@id += 1
       end
 
       def run(migration_tasks)
         # start migration requests
         cur_rounds = 0
-        every(@period) do
+        timer = every(@period) do
 
           migration_tasks.each do |topic, message|
+            message['id'] = SecureRandom.uuid
+            @migration_times[message['id']] = ThreadSafe::Hash.new
+            @migration_times[message['id']][:start] = Time.now
             @communicator.pub(message.to_yaml, topic)
           end
           
-          @requests_processed.signal if (cur_rounds += 1) == @rounds
+          @work_done.signal if (cur_rounds += 1) == @rounds 
         end
-    
-        @requests_processed.wait 
+
+        # wait for work to be done and shutdown receiver
+        @work_done.wait 
+        timer.cancel
+        publish(:migration_done, '')
+        
+        puts @migration_times
+      end
+    end
+
+    class Receiver < Worker
+      def initialize(msg_broker, topic, migration_times)
+        super(msg_broker, migration_times)
+
+        @communicator.sub(topic)
+        @migration_done = false
+        subscribe(:migration_done, :shutdown)
+      end
+
+      def run
+        @timer = every(0.0001) do 
+          topic, message =  @communicator.recv
+          puts message unless message.class == NilClass
+        end
+
+        @work_done.wait
+      end
+
+      def shutdown(topic, message)
+        @timer.cancel
+        @work_done.signal
       end
     end
   end

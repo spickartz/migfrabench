@@ -1,23 +1,19 @@
 module Migfrabench
   class Communicator 
-    def initialize(hostname='devon', port=1883)
-#      @mqtt_client = MQTT::Client.connect(
-#        host: hostname,
-#        port: port,
-#        ssl: false)
+    def initialize(msg_broker='localhost', port=1883)
+      @mqtt_client = MQTT::Client.connect(msg_broker)
     end
 
     def sub(topic)
-#      @mqtt_client.subscribe(topic)
+      @mqtt_client.subscribe(topic)
     end
 
     def pub(message, topic)
-#      @mqtt_client.publish(topic, message)
-      puts message
+      @mqtt_client.publish(topic, message)
     end
 
     def recv
-#      client.get
+      @mqtt_client.get unless @mqtt_client.queue_empty?
     end
   end
 end
