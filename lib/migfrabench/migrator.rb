@@ -20,6 +20,7 @@ module Migfrabench
       else
         @migration_rounds = rounds 
       end
+      @migration_rounds += 1 unless @migration_rounds.even?
       @period = @config_yaml['period']
 
       # create result hash
@@ -44,6 +45,7 @@ module Migfrabench
       @receiver.terminate
 
       # stop the VMs
+      sleep @period # TODO: sleep according to the last results
       @stop_tasks.each do |topic, message|
         @communicator.pub(message.to_yaml, topic)
       end
@@ -73,14 +75,25 @@ module Migfrabench
         @stop_tasks[request_topic]['vm-configurations'] << {'vm-name' => vm['vm-configuration']['vm-name']}
         
         # extract migrate task
-        @migration_tasks[request_topic] ||= {} 
-        @migration_tasks[request_topic]['task'] ||= 'migrate vm'
-        @migration_tasks[request_topic]['id'] ||= ''
-        @migration_tasks[request_topic]['vm-name'] = vm['vm-configuration']['vm-name']
-        @migration_tasks[request_topic]['destination'] = vm['destination']
-        @migration_tasks[request_topic]['parameter'] = {}
-        @migration_tasks[request_topic]['parameter']['live-migration'] = vm['live-migration']
-        @migration_tasks[request_topic]['parameter']['pscom-hook-procs'] = vm['procs-per-vm']
+        @migration_tasks[:forth] ||= {} 
+        @migration_tasks[:back] ||= {} 
+        migrate_topic ||= {}
+        migrate_topic[:forth] = config_yaml['request_topic'].gsub(/<hostname>/, vm['source'])
+        migrate_topic[:back] = config_yaml['request_topic'].gsub(/<hostname>/, vm['destination'])
+        destination ||= {}
+        destination[:forth] = vm['destination']
+        destination[:back] = vm['source']
+
+        [:forth, :back].each do |dir|
+          @migration_tasks[dir][migrate_topic[dir]] ||= {} 
+          @migration_tasks[dir][migrate_topic[dir]]['task'] ||= 'migrate vm'
+          @migration_tasks[dir][migrate_topic[dir]]['id'] ||= ''
+          @migration_tasks[dir][migrate_topic[dir]]['vm-name'] = vm['vm-configuration']['vm-name']
+          @migration_tasks[dir][migrate_topic[dir]]['destination'] = destination[dir]
+          @migration_tasks[dir][migrate_topic[dir]]['parameter'] = {}
+          @migration_tasks[dir][migrate_topic[dir]]['parameter']['live-migration'] = vm['live-migration']
+          @migration_tasks[dir][migrate_topic[dir]]['parameter']['pscom-hook-procs'] = vm['procs-per-vm']
+        end
       end
     end
 
@@ -106,15 +119,17 @@ module Migfrabench
       def run(migration_tasks)
         # start migration requests
         cur_rounds = 0
+        cur_dir, next_dir = :forth, :back
         timer = every(@period) do
-
-          migration_tasks.each do |topic, message|
+         
+          migration_tasks[cur_dir].each do |topic, message|
             message['id'] = SecureRandom.uuid
             @migration_times[message['id']] = ThreadSafe::Hash.new
             @migration_times[message['id']][:start] = Time.now
             @communicator.pub(message.to_yaml, topic)
           end
-          
+          cur_dir, next_dir = next_dir, cur_dir
+           
           @work_done.signal if (cur_rounds += 1) == @rounds 
         end
 
