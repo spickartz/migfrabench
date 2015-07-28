@@ -3,6 +3,9 @@ require 'celluloid'
 require 'securerandom'
 require 'thread_safe'
 require 'celluloid/autostart'
+require 'net/ssh'
+
+USER='pickartz'
 
 module Migfrabench
   class Migrator 
@@ -29,20 +32,32 @@ module Migfrabench
       # create requester/receiver and condition variable
       @requester = Requester.new(@msg_broker, @migration_rounds, @period, @migration_times)
       @receiver = Receiver.new(@msg_broker, @config_yaml['response_topic'], @migration_times)
+
+      # create TaskRunners
+      @config_yaml['bench-config'].each do |bench|
+        @task_runners ||= []
+        @task_runners << TaskRunner.new(bench['application'], bench['vm-configuration']['vm-name']) if bench['application']
+      end
     end
 
     def start
-      # start the VMs
+      # start the receiver
+      @receiver.async.run
+
+      # start the VMs TODO: wait for VMs to be started
       @start_tasks.each do |topic, message|
         @communicator.pub(message.to_yaml, topic)
       end
 
+      # start the task runners
+      @task_runners.each { |task_runner| task_runner.async.run }
+    
       # start requester/receiver
-      @requester.async.run(@migration_tasks)
-      @receiver.run
+      @requester.run(@migration_tasks)
 
       @requester.terminate
       @receiver.terminate
+#      @task_runners.each { |task_runner| task_runner.terminate }
 
       # stop the VMs
       sleep @period # TODO: sleep according to the last results
@@ -58,7 +73,7 @@ module Migfrabench
       @stop_tasks={}
       @migration_tasks = {}
 
-      config_yaml['bench_config'].each do |vm|
+      config_yaml['bench-config'].each do |vm|
         # request_topic
         request_topic = config_yaml['request_topic'].gsub(/<hostname>/, vm['source'])
 
@@ -102,9 +117,9 @@ module Migfrabench
       include Celluloid::Notifications
       
       def initialize(msg_broker, migration_times)
-        @communicator = Migfrabench::Communicator.new(msg_broker)
+        @communicator = Migfrabench::Communicator.new(msg_broker) unless msg_broker.nil?
         @work_done = Celluloid::Condition.new
-        @migration_times = migration_times
+        @migration_times = migration_times unless migration_times.nil?
       end
     end
 
@@ -163,6 +178,27 @@ module Migfrabench
       def shutdown(topic, message)
         @timer.cancel
         @work_done.signal
+      end
+    end
+
+    class TaskRunner < Worker
+      def initialize(cmd, host)
+        @cmd = cmd
+        @host = host
+        @done = false
+        
+        subscribe(:migration_done, :shutdown)
+      end
+
+      def run
+        until @done do 
+          Net::SSH.start(host, USER) { |session| puts session.exec!(@cmd) }
+          sleep 0.01
+        end
+      end
+
+      def shutdown(topic, message)
+        @done = true
       end
     end
   end
