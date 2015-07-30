@@ -82,12 +82,14 @@ module Migfrabench
         @start_tasks[request_topic]['task'] ||= 'start vm'
         @start_tasks[request_topic]['vm-configurations'] ||= [] 
         @start_tasks[request_topic]['vm-configurations'] << vm['vm-configuration']
+        @start_tasks[request_topic]['vm-configurations'].last['time-measurement'] = vm['time-measurement']
 
         # extract stop task
         @stop_tasks[request_topic] ||= {} 
         @stop_tasks[request_topic]['task'] ||= 'stop vm'
         @stop_tasks[request_topic]['vm-configurations'] ||= [] 
         @stop_tasks[request_topic]['vm-configurations'] << {'vm-name' => vm['vm-configuration']['vm-name']}
+        @stop_tasks[request_topic]['vm-configurations'].last['time-measurement'] = vm['time-measurement']
         
         # extract migrate task
         @migration_tasks[:forth] ||= {} 
@@ -107,6 +109,8 @@ module Migfrabench
           @migration_tasks[dir][migrate_topic[dir]]['destination'] = destination[dir]
           @migration_tasks[dir][migrate_topic[dir]]['parameter'] = {}
           @migration_tasks[dir][migrate_topic[dir]]['parameter']['live-migration'] = vm['live-migration']
+          @migration_tasks[dir][migrate_topic[dir]]['parameter']['rdma-migration'] = vm['rdma-migration']
+          @migration_tasks[dir][migrate_topic[dir]]['parameter']['time-measurement'] = vm['time-measurement']
           @migration_tasks[dir][migrate_topic[dir]]['parameter']['pscom-hook-procs'] = vm['procs-per-vm']
         end
       end
