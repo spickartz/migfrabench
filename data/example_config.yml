@@ -10,8 +10,19 @@ bench-config:
       memory: 3355443
     source: pandora3
     destination: pandora4
-#    application: "sleep 3"
-    procs-per-vm: 0
+    application: "sudo /etc/init.d/parastation start && . /global/cluster/parastation_gcc_4.8.3/bin/mpivars.sh && LD_LIBRARY_PATH=/home/pickartz/work/pscom/build/bin/lib/ PSP_ONDEMAND=1 PSP_SUSPEND_RESUME=1 mpiexec -np 2 -N 1-2 -F /home/pickartz/work/zerberus_git/tools/mpi/pingping_multi -r -1"
+    procs-per-vm: 1
     live-migration: false
     rdma-migration: true
     time-measurement: true
+#  - vm-configuration:
+#      vm-name: centos712
+#      vcpus: 1
+#      memory: 3355443
+#    source: pandora4
+#    destination: pandora3
+##    application: "sleep 3"
+#    procs-per-vm: 1
+#    live-migration: false
+#    rdma-migration: true
+#    time-measurement: true
