@@ -5,9 +5,10 @@ require 'thread_safe'
 require 'celluloid/autostart'
 require 'net/ssh'
 
-USER='pickartz'
+USER='root'
 
 module Migfrabench
+  $cur_msg_id = ""
   class Migrator 
     def initialize(config_file, rounds)
       # load config
@@ -46,11 +47,16 @@ module Migfrabench
 
       # start the VMs TODO: wait for VMs to be started
       @start_tasks.each do |topic, message|
+        message['id'] = $cur_msg_id = SecureRandom.uuid
+        @migration_times[message['id']] = ThreadSafe::Hash.new
+        @migration_times[message['id']][:start] = Time.now
         @communicator.pub(message.to_yaml, topic)
       end
 
-      # start the task runners
+      # start the task runners; TODO: wait for machine to be reachable
+      sleep 20
       @task_runners.each { |task_runner| task_runner.async.run }
+      sleep 1000
     
       # start requester/receiver
       @requester.run(@migration_tasks)
@@ -142,7 +148,7 @@ module Migfrabench
         timer = every(@period) do
          
           migration_tasks[cur_dir].each do |topic, message|
-            message['id'] = SecureRandom.uuid
+            message['id'] = $cur_msg_id = SecureRandom.uuid
             @migration_times[message['id']] = ThreadSafe::Hash.new
             @migration_times[message['id']][:start] = Time.now
             @communicator.pub(message.to_yaml, topic)
@@ -176,7 +182,11 @@ module Migfrabench
       def run
         @timer = every(0.0001) do 
           topic, message =  @communicator.recv
-          puts message unless message.class == NilClass
+          unless (message.class == NilClass)
+            @migration_times[$cur_msg_id][:stop] = Time.now
+            @migration_times[$cur_msg_id][:msg] = message
+            puts "Migration time #{@migration_times[$cur_msg_id][:stop]-@migration_times[$cur_msg_id][:start]}"
+          end
         end
 
         @work_done.wait
@@ -199,7 +209,7 @@ module Migfrabench
 
       def run
         until @done do 
-          Net::SSH.start(host, USER) { |session| puts session.exec!(@cmd) }
+          Net::SSH.start(@host, USER) { |session| puts session.exec!(@cmd) }
           sleep 0.01
         end
       end
