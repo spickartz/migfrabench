@@ -107,10 +107,10 @@ module Migfrabench
           @migration_tasks[dir][migrate_topic[dir]]['id'] ||= ''
           @migration_tasks[dir][migrate_topic[dir]]['vm-name'] = vm['vm-configuration']['vm-name']
           @migration_tasks[dir][migrate_topic[dir]]['destination'] = destination[dir]
+          @migration_tasks[dir][migrate_topic[dir]]['time-measurement'] = vm['time-measurement']
           @migration_tasks[dir][migrate_topic[dir]]['parameter'] = {}
           @migration_tasks[dir][migrate_topic[dir]]['parameter']['live-migration'] = vm['live-migration']
           @migration_tasks[dir][migrate_topic[dir]]['parameter']['rdma-migration'] = vm['rdma-migration']
-          @migration_tasks[dir][migrate_topic[dir]]['parameter']['time-measurement'] = vm['time-measurement']
           @migration_tasks[dir][migrate_topic[dir]]['parameter']['pscom-hook-procs'] = vm['procs-per-vm']
         end
       end
