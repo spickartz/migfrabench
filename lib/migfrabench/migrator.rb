@@ -152,9 +152,12 @@ module Migfrabench
           @work_done.signal if (cur_rounds += 1) == @rounds 
         end
 
-        # wait for work to be done and shutdown receiver
+        # wait for work to be done
         @work_done.wait 
         timer.cancel
+
+        # shutdown the receiver when shure that the migration should be done
+        sleep 30
         publish(:migration_done, '')
         
         puts @migration_times
