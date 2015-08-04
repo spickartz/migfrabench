@@ -4,11 +4,11 @@ require 'securerandom'
 require 'thread_safe'
 require 'celluloid/autostart'
 require 'net/ssh'
+require 'terminal-table'
 
 USER='pickartz'
 
 module Migfrabench
-  $cur_msg_id = ""
   class Migrator 
     def initialize(config_file, rounds)
       # load config
@@ -49,12 +49,12 @@ module Migfrabench
       # start the VMs TODO: wait for VMs to be started
       if @start_stop_vms 
         @start_tasks.each do |topic, message|
-          message['id'] = $cur_msg_id = SecureRandom.uuid
+          message['id'] = SecureRandom.uuid
           @migration_times[message['id']] = ThreadSafe::Hash.new
-          @migration_times[message['id']][:start] = Time.now
+          @migration_times[message['id']][:start] = (Time.now.to_f*1000).to_i 
           @communicator.pub(message.to_yaml, topic)
         end
-        sleep 20
+        sleep 15
       end
 
       # start the task runners
@@ -77,34 +77,53 @@ module Migfrabench
       end
   
       # evaluate migration results
-      evaluation = eval_migration_times
-      longest_key = evaluation.keys.max_by(&:length)
-      evaluation.each do |figure, duration|
-        printf "%-#{longest_key.length}s %s\n", figure, duration
-      end
+      puts create_table(eval_migration_times)
     end
 
     private
+    def create_table(evaluation)
+      table_rows = []
+
+      table = Terminal::Table.new do |table|
+        tr_header = ['vm-name']
+        evaluation[evaluation.keys[0]].sort.map { |figure, duration| tr_header << figure }
+
+        table << tr_header
+        table.add_separator
+        evaluation.sort.map do |vm_name, results|
+          cur_results = []
+          cur_results << vm_name
+          results.sort.map { |figure, duration| cur_results << duration }
+          table << cur_results
+        end
+      end
+
+      table.style = {width: 80, alignment: :right}
+      table
+    end
+
     def eval_migration_times
       figures ||= {}
       @migration_times.each do |id, result|
-        figures['outer'] ||= 0
-        figures['outer'] += (result[:stop]-result[:start])*1000
-
         # read migfra results
         result_yaml = YAML.load(result[:msg])
         next unless result_yaml['result'].eql?('migrate vm')
 
+        vm_name = result_yaml['list'][0]['vm-name']
+        figures[vm_name] ||= {}
+        figures[vm_name]['outer'] ||= 0
+        figures[vm_name]['outer'] += result[:stop]-result[:start]
+
         result_yaml['list'][0]['durations'].each do |figure, duration|
-          figures[figure] ||= 0
-          figures[figure] += duration
+          figures[vm_name][figure] ||= 0
+          figures[vm_name][figure] += duration
         end
       end
 
-      figures.each do |figure, duration|
-        figures[figure] /= @migration_times.length
+      figures.each do |vm_name, results|
+        results.each { |figure, duration| figures[vm_name][figure] /= @migration_rounds }
       end
-
+      
       figures
     end
 
@@ -187,9 +206,9 @@ module Migfrabench
          
           migration_tasks[cur_dir].each do |topic, messages|
             messages.each do |message|
-              message['id'] = $cur_msg_id = SecureRandom.uuid
+              message['id'] = SecureRandom.uuid
               @migration_times[message['id']] = ThreadSafe::Hash.new
-              @migration_times[message['id']][:start] = Time.now
+              @migration_times[message['id']][:start] = (Time.now.to_f*1000).to_i 
               @communicator.pub(message.to_yaml, topic)
             end
           end
@@ -221,8 +240,10 @@ module Migfrabench
         @timer = every(0.0001) do 
           topic, message =  @communicator.recv
           unless (message.class == NilClass)
-            @migration_times[$cur_msg_id][:stop] = Time.now
-            @migration_times[$cur_msg_id][:msg] = message
+            msg_id = YAML.load(message)['id']
+            
+            @migration_times[msg_id][:stop] = (Time.now.to_f*1000).to_i 
+            @migration_times[msg_id][:msg] = message
           end
         end
 
