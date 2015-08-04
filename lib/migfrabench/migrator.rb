@@ -75,9 +75,39 @@ module Migfrabench
           @communicator.pub(message.to_yaml, topic)
         end
       end
+  
+      # evaluate migration results
+      evaluation = eval_migration_times
+      longest_key = evaluation.keys.max_by(&:length)
+      evaluation.each do |figure, duration|
+        printf "%-#{longest_key.length}s %s\n", figure, duration
+      end
     end
 
     private
+    def eval_migration_times
+      figures ||= {}
+      @migration_times.each do |id, result|
+        figures['outer'] ||= 0
+        figures['outer'] += (result[:stop]-result[:start])*1000
+
+        # read migfra results
+        result_yaml = YAML.load(result[:msg])
+        next unless result_yaml['result'].eql?('migrate vm')
+
+        result_yaml['list'][0]['durations'].each do |figure, duration|
+          figures[figure] ||= 0
+          figures[figure] += duration
+        end
+      end
+
+      figures.each do |figure, duration|
+        figures[figure] /= @migration_times.length
+      end
+
+      figures
+    end
+
     def create_migfra_tasks(config_yaml)
       # prepare task hashes
       @start_tasks={}
@@ -113,16 +143,19 @@ module Migfrabench
         destination[:back] = vm['source']
 
         [:forth, :back].each do |dir|
-          @migration_tasks[dir][migrate_topic[dir]] ||= {} 
-          @migration_tasks[dir][migrate_topic[dir]]['task'] ||= 'migrate vm'
-          @migration_tasks[dir][migrate_topic[dir]]['id'] ||= ''
-          @migration_tasks[dir][migrate_topic[dir]]['vm-name'] = vm['vm-configuration']['vm-name']
-          @migration_tasks[dir][migrate_topic[dir]]['destination'] = destination[dir]
-          @migration_tasks[dir][migrate_topic[dir]]['time-measurement'] = vm['time-measurement']
-          @migration_tasks[dir][migrate_topic[dir]]['parameter'] = {}
-          @migration_tasks[dir][migrate_topic[dir]]['parameter']['live-migration'] = vm['live-migration']
-          @migration_tasks[dir][migrate_topic[dir]]['parameter']['rdma-migration'] = vm['rdma-migration']
-          @migration_tasks[dir][migrate_topic[dir]]['parameter']['pscom-hook-procs'] = vm['procs-per-vm']
+          new_task ||= {} 
+          new_task['task'] ||= 'migrate vm'
+          new_task['id'] ||= ''
+          new_task['vm-name'] = vm['vm-configuration']['vm-name']
+          new_task['destination'] = destination[dir]
+          new_task['time-measurement'] = vm['time-measurement']
+          new_task['parameter'] = {}
+          new_task['parameter']['live-migration'] = vm['live-migration']
+          new_task['parameter']['rdma-migration'] = vm['rdma-migration']
+          new_task['parameter']['pscom-hook-procs'] = vm['procs-per-vm']
+          
+          @migration_tasks[dir][migrate_topic[dir]] ||= []
+          @migration_tasks[dir][migrate_topic[dir]] << new_task
         end
       end
     end
@@ -152,11 +185,13 @@ module Migfrabench
         cur_dir, next_dir = :forth, :back
         timer = every(@period) do
          
-          migration_tasks[cur_dir].each do |topic, message|
-            message['id'] = $cur_msg_id = SecureRandom.uuid
-            @migration_times[message['id']] = ThreadSafe::Hash.new
-            @migration_times[message['id']][:start] = Time.now
-            @communicator.pub(message.to_yaml, topic)
+          migration_tasks[cur_dir].each do |topic, messages|
+            messages.each do |message|
+              message['id'] = $cur_msg_id = SecureRandom.uuid
+              @migration_times[message['id']] = ThreadSafe::Hash.new
+              @migration_times[message['id']][:start] = Time.now
+              @communicator.pub(message.to_yaml, topic)
+            end
           end
           cur_dir, next_dir = next_dir, cur_dir
            
@@ -170,8 +205,6 @@ module Migfrabench
         # shutdown the receiver when shure that the migration should be done
         sleep 30
         publish(:migration_done, '')
-        
-        puts @migration_times
       end
     end
 
@@ -190,7 +223,6 @@ module Migfrabench
           unless (message.class == NilClass)
             @migration_times[$cur_msg_id][:stop] = Time.now
             @migration_times[$cur_msg_id][:msg] = message
-            puts "Migration time #{@migration_times[$cur_msg_id][:stop]-@migration_times[$cur_msg_id][:start]}"
           end
         end
 
