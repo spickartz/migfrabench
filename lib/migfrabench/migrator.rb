@@ -99,7 +99,7 @@ module Migfrabench
         end
       end
 
-      table.style = {width: 80, alignment: :right}
+      table.style = {alignment: :right}
       table
     end
 
