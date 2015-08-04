@@ -27,6 +27,7 @@ module Migfrabench
       @migration_rounds += 1 unless @migration_rounds.even?
       @period = @config_yaml['period']
       @start_stop_vms = @config_yaml['start-stop-vms']
+      @evaluate = @config_yaml['evaluate']
 
       # create result hash
       @migration_times = ThreadSafe::Hash.new
@@ -77,7 +78,7 @@ module Migfrabench
       end
   
       # evaluate migration results
-      puts create_table(eval_migration_times)
+      puts create_table(eval_migration_times) if @evaluate
     end
 
     private
