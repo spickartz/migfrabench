@@ -5,7 +5,7 @@ require 'thread_safe'
 require 'celluloid/autostart'
 require 'net/ssh'
 
-USER='root'
+USER='pickartz'
 
 module Migfrabench
   $cur_msg_id = ""
@@ -26,6 +26,7 @@ module Migfrabench
       end
       @migration_rounds += 1 unless @migration_rounds.even?
       @period = @config_yaml['period']
+      @start_stop_vms = @config_yaml['start-stop-vms']
 
       # create result hash
       @migration_times = ThreadSafe::Hash.new
@@ -46,17 +47,19 @@ module Migfrabench
       @receiver.async.run
 
       # start the VMs TODO: wait for VMs to be started
-      @start_tasks.each do |topic, message|
-        message['id'] = $cur_msg_id = SecureRandom.uuid
-        @migration_times[message['id']] = ThreadSafe::Hash.new
-        @migration_times[message['id']][:start] = Time.now
-        @communicator.pub(message.to_yaml, topic)
+      if @start_stop_vms 
+        @start_tasks.each do |topic, message|
+          message['id'] = $cur_msg_id = SecureRandom.uuid
+          @migration_times[message['id']] = ThreadSafe::Hash.new
+          @migration_times[message['id']][:start] = Time.now
+          @communicator.pub(message.to_yaml, topic)
+        end
+        sleep 20
       end
 
-      # start the task runners; TODO: wait for machine to be reachable
-      sleep 20
+      # start the task runners
       @task_runners.each { |task_runner| task_runner.async.run }
-      sleep 1000
+      sleep 3
     
       # start requester/receiver
       @requester.run(@migration_tasks)
@@ -66,9 +69,11 @@ module Migfrabench
 #      @task_runners.each { |task_runner| task_runner.terminate }
 
       # stop the VMs
-      sleep @period # TODO: sleep according to the last results
-      @stop_tasks.each do |topic, message|
-        @communicator.pub(message.to_yaml, topic)
+      if @start_stop_vms
+        sleep @period # TODO: sleep according to the last results
+        @stop_tasks.each do |topic, message|
+          @communicator.pub(message.to_yaml, topic)
+        end
       end
     end
 
@@ -209,7 +214,7 @@ module Migfrabench
 
       def run
         until @done do 
-          Net::SSH.start(@host, USER) { |session| puts session.exec!(@cmd) }
+          Net::SSH.start(@host, USER) { |session| session.exec!(@cmd) }
           sleep 0.01
         end
       end
