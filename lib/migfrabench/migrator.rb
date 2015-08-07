@@ -5,6 +5,7 @@ require 'thread_safe'
 require 'celluloid/autostart'
 require 'net/ssh'
 require 'terminal-table'
+require 'ruby-progressbar'
 
 USER='pickartz'
 
@@ -200,18 +201,21 @@ module Migfrabench
       end
 
       def run(migration_tasks)
-        # start migration requests
+        # initialize local variables and progress bar
         cur_rounds = 1
+        pb = ProgressBar.create(total: @rounds, title: 'Migration Rounds', format: '  %t: %B  %c/%C')
 
         # start first round immediatetly
         migration_round(migration_tasks, :forth)
 
         cur_dir, next_dir = :back, :forth
         timer = every(@period) do
-         
+          # send request 
           migration_round(migration_tasks, cur_dir)
           cur_dir, next_dir = next_dir, cur_dir
-           
+          pb.increment
+          
+          # are we done? 
           @work_done.signal if (cur_rounds += 1) == @rounds 
         end
 
