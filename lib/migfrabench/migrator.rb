@@ -201,18 +201,15 @@ module Migfrabench
 
       def run(migration_tasks)
         # start migration requests
-        cur_rounds = 0
-        cur_dir, next_dir = :forth, :back
+        cur_rounds = 1
+
+        # start first round immediatetly
+        migration_round(migration_tasks, :forth)
+
+        cur_dir, next_dir = :back, :forth
         timer = every(@period) do
          
-          migration_tasks[cur_dir].each do |topic, messages|
-            messages.each do |message|
-              message['id'] = SecureRandom.uuid
-              @migration_times[message['id']] = ThreadSafe::Hash.new
-              @migration_times[message['id']][:start] = (Time.now.to_f*1000).to_i 
-              @communicator.pub(message.to_yaml, topic)
-            end
-          end
+          migration_round(migration_tasks, cur_dir)
           cur_dir, next_dir = next_dir, cur_dir
            
           @work_done.signal if (cur_rounds += 1) == @rounds 
@@ -225,6 +222,19 @@ module Migfrabench
         # shutdown the receiver when shure that the migration should be done
         sleep 30
         publish(:migration_done, '')
+      end
+
+      private
+      def migration_round(migration_tasks, cur_dir)
+        migration_tasks[cur_dir].each do |topic, messages|
+          messages.each do |message|
+            message['id'] = SecureRandom.uuid
+            @migration_times[message['id']] = ThreadSafe::Hash.new
+            @migration_times[message['id']][:start] = (Time.now.to_f*1000).to_i 
+            @communicator.pub(message.to_yaml, topic)
+            sleep 2
+          end
+        end
       end
     end
 

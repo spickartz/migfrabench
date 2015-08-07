@@ -1,17 +1,18 @@
 mqtt_broker: "devon"
 request_topic: "fast/migfra/<hostname>/task"
 response_topic: "fast/migfra/+/result"
-rounds: 6
-period: 25
-start-stop-vms: false
+rounds: 2
+period: 30
+start-stop-vms: true
+evaluate: true
 bench-config:
   - vm-configuration:
-      vm-name: centos711
-      vcpus: 4
-      memory: 2097152
+      vm-name: centos712
+      vcpus: 5
+      memory: 524288 
     source: pandora3
-    destination: pandora4
-    procs-per-vm: 2
+    destination: pandora2
+    procs-per-vm: 1
     live-migration: false
     rdma-migration: true
     time-measurement: true
