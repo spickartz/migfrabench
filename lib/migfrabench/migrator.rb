@@ -157,7 +157,8 @@ module Migfrabench
         @stop_tasks[request_topic]['vm-configurations'] << {'vm-name' => vm['vm-configuration']['vm-name']}
         @stop_tasks[request_topic]['vm-configurations'].last['time-measurement'] = vm['time-measurement']
         
-        # extract migrate task
+        # extract migrate task; skip if source == destination
+        next if (vm['source'].eql?(vm['destination']))
         @migration_tasks[:forth] ||= {} 
         @migration_tasks[:back] ||= {} 
         migrate_topic ||= {}
