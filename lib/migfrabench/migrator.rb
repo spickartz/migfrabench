@@ -206,6 +206,7 @@ module Migfrabench
 
         # start first round immediatetly
         migration_round(migration_tasks, :forth)
+        CountDown.new(@period, "Next migration in").async.run
 
         cur_dir, next_dir = :back, :forth
         timer = every(@period) do
@@ -213,9 +214,13 @@ module Migfrabench
           migration_round(migration_tasks, cur_dir)
           cur_dir, next_dir = next_dir, cur_dir
           pb.increment
-          
-          # are we done? 
-          @work_done.signal if (cur_rounds += 1) == @rounds 
+          puts ""
+       
+          if (cur_rounds += 1) == @rounds
+            @work_done.signal 
+          else
+            CountDown.new(@period, "Next migration in").async.run
+          end
         end
 
         # wait for work to be done
@@ -223,7 +228,7 @@ module Migfrabench
         timer.cancel
 
         # shutdown the receiver when shure that the migration should be done
-        sleep 30
+        CountDown.new(30, "Wait for last migration").run
         publish(:migration_done, '')
       end
 
@@ -235,8 +240,23 @@ module Migfrabench
             @migration_times[message['id']] = ThreadSafe::Hash.new
             @migration_times[message['id']][:start] = (Time.now.to_f*1000).to_i 
             @communicator.pub(message.to_yaml, topic)
-            sleep 2
+            sleep 1
           end
+        end
+      end
+    end
+
+    class CountDown < Worker
+      def initialize(time, title)
+        @timer = time
+        @title = title
+      end
+
+      def run
+        pb = ProgressBar.create(total: @timer, title: @title, format: '  %t: %B  %c/%C s')
+        (@timer-1).times do 
+          pb.increment
+          sleep 1
         end
       end
     end
