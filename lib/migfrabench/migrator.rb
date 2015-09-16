@@ -6,6 +6,7 @@ require 'celluloid/autostart'
 require 'net/ssh'
 require 'terminal-table'
 require 'ruby-progressbar'
+require 'fileutils'
 
 USER='pickartz'
 
@@ -37,10 +38,14 @@ module Migfrabench
       @requester = Requester.new(@msg_broker, @migration_rounds, @period, @migration_times)
       @receiver = Receiver.new(@msg_broker, @config_yaml['response_topic'], @migration_times)
 
+      # crate log-dir
+      @log_dir = @config_yaml['log-dir']
+      FileUtils.mkdir_p(@log_dir) unless @log_dir.nil?
+
       # create TaskRunners
       @config_yaml['bench-config'].each do |bench|
         @task_runners ||= []
-        @task_runners << TaskRunner.new(bench['application'], bench['vm-configuration']['vm-name']) if bench['application']
+        @task_runners << TaskRunner.new(bench['application'], bench['vm-configuration']['vm-name'], @log_dir) if bench['application']
       end
     end
 
@@ -56,7 +61,7 @@ module Migfrabench
           @migration_times[message['id']][:start] = (Time.now.to_f*1000).to_i 
           @communicator.pub(message.to_yaml, topic)
         end
-        sleep 15
+        CountDown.new(20, "VM boot").run
       end
 
       # start the task runners
@@ -68,7 +73,7 @@ module Migfrabench
 
       @requester.terminate
       @receiver.terminate
-#      @task_runners.each { |task_runner| task_runner.terminate }
+      @task_runners.each { |task_runner| task_runner.terminate }
 
       # stop the VMs
       if @start_stop_vms
@@ -291,18 +296,24 @@ module Migfrabench
     end
 
     class TaskRunner < Worker
-      def initialize(cmd, host)
+      def initialize(cmd, host, log_dir)
         @cmd = cmd
         @host = host
         @done = false
+        @log_dir = log_dir
         
         subscribe(:migration_done, :shutdown)
       end
 
       def run
+        executions = 0
         until @done do 
-          Net::SSH.start(@host, USER) { |session| session.exec!(@cmd) }
-          sleep 0.01
+          Net::SSH.start(@host, USER) do |session| 
+            output = session.exec!(@cmd) 
+            File.open("#{@log_dir}/run_#{executions}.dat", "wb") { |file| file.write(output)} unless @log_dir.nil?
+          end
+          executions +=1
+          sleep 1
         end
       end
 
