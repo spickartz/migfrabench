@@ -66,20 +66,22 @@ module Migfrabench
         CountDown.new(20, "VM boot").run
       end
 
-      # start initialization tasks
-      @init_task_runners.each { |init_task_runner| init_task_runner.async.run; sleep 0.1 }
-      @init_task_runners.each { |init_task_runner| init_task_runner.terminate }
+      # start initialization tasks and wait a bit
+      init_futures = []
+      @init_task_runners.each { |init_task_runner, index| init_futures << init_task_runner.future.run }
+      init_futures.each { |future| future.value }
+      CountDown.new(5, "Postpone task start").run
 
       # start the task runners
-#      @task_runners.each { |task_runner| task_runner.async.run }
-#      sleep 3
+      @task_runners.each { |task_runner| task_runner.async.run }
+      sleep 3
     
       # start requester/receiver
-#      @requester.run(@migration_tasks)
-#
-#      @requester.terminate
-#      @receiver.terminate
-#      @task_runners.each { |task_runner| task_runner.terminate }
+      @requester.run(@migration_tasks) unless @migration_tasks[:forth].nil?
+
+      @requester.terminate
+      @receiver.terminate
+      @task_runners.each { |task_runner| task_runner.terminate }
 
       # stop the VMs
       if @start_stop_vms
@@ -90,7 +92,7 @@ module Migfrabench
       end
   
       # evaluate migration results
-#      puts create_table(eval_migration_times) if @evaluate
+      puts create_table(eval_migration_times) if (@evaluate && !eval_migration_times.empty?)
     end
 
     private
@@ -314,11 +316,9 @@ module Migfrabench
       end
 
       def run
+        runtime = 0
         if @run_once
-          execute("init")
-          until @done do 
-            sleep 0.01
-          end
+          runtime = execute("init")
         else
           executions = 0
           until @done do
@@ -327,6 +327,8 @@ module Migfrabench
             sleep 1
           end
         end
+
+        runtime
       end
 
       def shutdown(topic, message)
@@ -335,13 +337,17 @@ module Migfrabench
 
       private
       def execute(execution)
-          Net::SSH.start(@host, USER) do |session| 
-            runtime = (Time.now.to_f*1000).to_i
-            output = session.exec!(@cmd) 
-            runtime = (Time.now.to_f*1000).to_i - runtime 
-            File.open("#{@log_dir}/#{@host}_output_#{execution}.dat", "wb") { |file| file.write(output)} unless @log_dir.nil?
-            File.open("#{@log_dir}/#{@host}_runtime_#{execution}.dat", "wb") { |file| file.write(runtime)} unless @log_dir.nil?
-          end
+        runtime = 0
+        Net::SSH.start(@host, USER) do |session| 
+          runtime = (Time.now.to_f*1000).to_i
+          output = session.exec!(@cmd) 
+          runtime = (Time.now.to_f*1000).to_i - runtime 
+          File.open("#{@log_dir}/#{@host}_output_#{execution}.dat", "wb") { |file| file.write(output)} unless @log_dir.nil?
+          File.open("#{@log_dir}/#{@host}_runtime_#{execution}.dat", "wb") { |file| file.write(runtime)} unless @log_dir.nil?
+        end
+
+        # return runtime
+        runtime
       end
     end
   end
