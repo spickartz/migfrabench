@@ -44,8 +44,10 @@ module Migfrabench
 
       # create TaskRunners
       @config_yaml['bench-config'].each do |bench|
+        @init_task_runners ||= []
+        @init_task_runners << TaskRunner.new(bench['init-app'], bench['vm-configuration']['vm-name'], @log_dir, true) if bench['init-app']
         @task_runners ||= []
-        @task_runners << TaskRunner.new(bench['application'], bench['vm-configuration']['vm-name'], @log_dir) if bench['application']
+        @task_runners << TaskRunner.new(bench['app'], bench['vm-configuration']['vm-name'], @log_dir, false) if bench['app']
       end
     end
 
@@ -64,16 +66,20 @@ module Migfrabench
         CountDown.new(20, "VM boot").run
       end
 
+      # start initialization tasks
+      @init_task_runners.each { |init_task_runner| init_task_runner.async.run; sleep 0.1 }
+      @init_task_runners.each { |init_task_runner| init_task_runner.terminate }
+
       # start the task runners
-      @task_runners.each { |task_runner| task_runner.async.run }
-      sleep 3
+#      @task_runners.each { |task_runner| task_runner.async.run }
+#      sleep 3
     
       # start requester/receiver
-      @requester.run(@migration_tasks)
-
-      @requester.terminate
-      @receiver.terminate
-      @task_runners.each { |task_runner| task_runner.terminate }
+#      @requester.run(@migration_tasks)
+#
+#      @requester.terminate
+#      @receiver.terminate
+#      @task_runners.each { |task_runner| task_runner.terminate }
 
       # stop the VMs
       if @start_stop_vms
@@ -84,7 +90,7 @@ module Migfrabench
       end
   
       # evaluate migration results
-      puts create_table(eval_migration_times) if @evaluate
+#      puts create_table(eval_migration_times) if @evaluate
     end
 
     private
@@ -297,29 +303,45 @@ module Migfrabench
     end
 
     class TaskRunner < Worker
-      def initialize(cmd, host, log_dir)
+      def initialize(cmd, host, log_dir, run_once)
         @cmd = cmd
         @host = host
         @done = false
         @log_dir = log_dir
+        @run_once = run_once
         
         subscribe(:migration_done, :shutdown)
       end
 
       def run
-        executions = 0
-        until @done do 
-          Net::SSH.start(@host, USER) do |session| 
-            output = session.exec!(@cmd) 
-            File.open("#{@log_dir}/run_#{executions}.dat", "wb") { |file| file.write(output)} unless @log_dir.nil?
+        if @run_once
+          execute("init")
+          until @done do 
+            sleep 0.01
           end
-          executions +=1
-          sleep 1
+        else
+          executions = 0
+          until @done do
+            execute(executions)
+            executions +=1
+            sleep 1
+          end
         end
       end
 
       def shutdown(topic, message)
         @done = true
+      end
+
+      private
+      def execute(execution)
+          Net::SSH.start(@host, USER) do |session| 
+            runtime = (Time.now.to_f*1000).to_i
+            output = session.exec!(@cmd) 
+            runtime = (Time.now.to_f*1000).to_i - runtime 
+            File.open("#{@log_dir}/#{@host}_output_#{execution}.dat", "wb") { |file| file.write(output)} unless @log_dir.nil?
+            File.open("#{@log_dir}/#{@host}_runtime_#{execution}.dat", "wb") { |file| file.write(runtime)} unless @log_dir.nil?
+          end
       end
     end
   end
