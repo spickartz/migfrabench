@@ -1,20 +1,32 @@
 mqtt_broker: "devon"
 request_topic: "fast/migfra/<hostname>/task"
 response_topic: "fast/migfra/+/result"
-rounds: 2
+rounds: 6
 period: 30
 start-stop-vms: true
 evaluate: true
+log-dir: "./log"
 bench-config:
   - vm-configuration:
       vm-name: centos712
-      vcpus: 5
-      memory: 524288 
-    source: pandora3
+      vcpus: 16
+      memory: 8192
+    source: pandora2
     destination: pandora2
-    procs-per-vm: 1
+    procs-per-vm: 0
     live-migration: false
     rdma-migration: true
     time-measurement: true
-
-# application: "sudo /etc/init.d/parastation start && . /global/cluster/parastation_gcc_4.8.3/bin/mpivars.sh && LD_LIBRARY_PATH=/home/pickartz/work/pscom/build/bin/lib/ PSP_ONDEMAND=1 PSP_SUSPEND_RESUME=1 mpiexec -np 2 -N 1-2 -F /home/pickartz/work/zerberus_git/tools/mpi/pingping_multi -r -1"
+    init-app: "sudo /etc/init.d/parastation start"
+  - vm-configuration:
+      vm-name: centos713
+      vcpus: 16
+      memory: 8192
+    source: pandora3
+    destination: pandora4
+    procs-per-vm: 2
+    live-migration: false
+    rdma-migration: true
+    time-measurement: true
+    init-app: "sudo /etc/init.d/parastation start"
+    app: "echo 'Hello World' && sleep 1"
