@@ -121,7 +121,7 @@ module Migfrabench
       @migration_times.each do |id, result|
         # read migfra results
         result_yaml = YAML.load(result[:msg])
-        next unless result_yaml['result'].eql?('migrate vm')
+        next unless result_yaml['result'].eql?('vm migrated')
 
         vm_name = result_yaml['list'][0]['vm-name']
         figures[vm_name] ||= {}
@@ -137,7 +137,6 @@ module Migfrabench
       figures.each do |vm_name, results|
         results.each { |figure, duration| figures[vm_name][figure] /= @migration_rounds }
       end
-      
       figures
     end
 
