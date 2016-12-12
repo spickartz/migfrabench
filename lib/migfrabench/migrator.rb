@@ -11,7 +11,7 @@ require 'fileutils'
 USER='pickartz'
 
 module Migfrabench
-  class Migrator 
+  class Migrator
     def initialize(config_file, rounds)
       # load config
       @config_yaml = YAML.load_file(config_file)
@@ -22,9 +22,9 @@ module Migfrabench
       # create tasks
       create_migfra_tasks(@config_yaml)
       if rounds.nil?
-        @migration_rounds = @config_yaml['rounds'] 
+        @migration_rounds = @config_yaml['rounds']
       else
-        @migration_rounds = rounds 
+        @migration_rounds = rounds
       end
       @migration_rounds += 1 unless @migration_rounds.even?
       @period = @config_yaml['period']
@@ -56,11 +56,11 @@ module Migfrabench
       @receiver.async.run
 
       # start the VMs TODO: wait for VMs to be started
-      if @start_stop_vms 
+      if @start_stop_vms
         @start_tasks.each do |topic, message|
           message['id'] = SecureRandom.uuid
           @migration_times[message['id']] = ThreadSafe::Hash.new
-          @migration_times[message['id']][:start] = (Time.now.to_f*1000).to_i 
+          @migration_times[message['id']][:start] = (Time.now.to_f*1000).to_i
           @communicator.pub(message.to_yaml, topic)
         end
         CountDown.new(20, "VM boot").run
@@ -75,7 +75,7 @@ module Migfrabench
       # start the task runners
       @task_runners.each { |task_runner| task_runner.async.run }
       sleep 3
-    
+
       # start requester/receiver
       @requester.run(@migration_tasks) unless @migration_tasks[:forth].nil?
 
@@ -90,7 +90,7 @@ module Migfrabench
           @communicator.pub(message.to_yaml, topic)
         end
       end
-  
+
       # evaluate migration results
       puts create_table(eval_migration_times) if (@evaluate && !eval_migration_times.empty?)
     end
@@ -107,7 +107,7 @@ module Migfrabench
         evaluation.sort.map do |vm_name, results|
           cur_results = []
           cur_results << vm_name
-          results.sort.map { |figure, duration| cur_results << duration }
+          results.sort.map { |figure, duration| cur_results << (duration*1000).round(0) }
           table << cur_results
         end
       end
@@ -123,12 +123,12 @@ module Migfrabench
         result_yaml = YAML.load(result[:msg])
         next unless result_yaml['result'].eql?('vm migrated')
 
-        vm_name = result_yaml['list'][0]['vm-name']
+        vm_name = result_yaml['vm-name']
         figures[vm_name] ||= {}
         figures[vm_name]['outer'] ||= 0
         figures[vm_name]['outer'] += result[:stop]-result[:start]
 
-        result_yaml['list'][0]['durations'].each do |figure, duration|
+        result_yaml['time-measurement'].each do |figure, duration|
           figures[vm_name][figure] ||= 0
           figures[vm_name][figure] += duration
         end
@@ -151,23 +151,23 @@ module Migfrabench
         request_topic = config_yaml['request_topic'].gsub(/<hostname>/, vm['source'])
 
         # extract start task
-        @start_tasks[request_topic] ||= {} 
+        @start_tasks[request_topic] ||= {}
         @start_tasks[request_topic]['task'] ||= 'start vm'
-        @start_tasks[request_topic]['vm-configurations'] ||= [] 
-        @start_tasks[request_topic]['vm-configurations'] << vm['vm-configuration']
-        @start_tasks[request_topic]['vm-configurations'].last['time-measurement'] = vm['time-measurement']
+        @start_tasks[request_topic]['vm-configuration'] ||= []
+        @start_tasks[request_topic]['vm-configuration'] << vm['vm-configuration']
+        @start_tasks[request_topic]['vm-configuration'].last['time-measurement'] = vm['time-measurement']
 
         # extract stop task
-        @stop_tasks[request_topic] ||= {} 
+        @stop_tasks[request_topic] ||= {}
         @stop_tasks[request_topic]['task'] ||= 'stop vm'
-        @stop_tasks[request_topic]['vm-configurations'] ||= [] 
-        @stop_tasks[request_topic]['vm-configurations'] << {'vm-name' => vm['vm-configuration']['vm-name']}
-        @stop_tasks[request_topic]['vm-configurations'].last['time-measurement'] = vm['time-measurement']
-        
+        @stop_tasks[request_topic]['vm-configuration'] ||= []
+        @stop_tasks[request_topic]['vm-configuration'] << {'vm-name' => vm['vm-configuration']['vm-name']}
+        @stop_tasks[request_topic]['vm-configuration'].last['time-measurement'] = vm['time-measurement']
+
         # extract migrate task; skip if source == destination
         next if (vm['source'].eql?(vm['destination']))
-        @migration_tasks[:forth] ||= {} 
-        @migration_tasks[:back] ||= {} 
+        @migration_tasks[:forth] ||= {}
+        @migration_tasks[:back] ||= {}
         migrate_topic ||= {}
         migrate_topic[:forth] = config_yaml['request_topic'].gsub(/<hostname>/, vm['source'])
         migrate_topic[:back] = config_yaml['request_topic'].gsub(/<hostname>/, vm['destination'])
@@ -176,7 +176,7 @@ module Migfrabench
         destination[:back] = vm['source']
 
         [:forth, :back].each do |dir|
-          new_task ||= {} 
+          new_task ||= {}
           new_task['task'] ||= 'migrate vm'
           new_task['id'] ||= ''
           new_task['vm-name'] = vm['vm-configuration']['vm-name']
@@ -186,7 +186,7 @@ module Migfrabench
           new_task['parameter']['live-migration'] = vm['live-migration']
           new_task['parameter']['rdma-migration'] = vm['rdma-migration']
           new_task['parameter']['pscom-hook-procs'] = vm['procs-per-vm']
-          
+
           @migration_tasks[dir][migrate_topic[dir]] ||= []
           @migration_tasks[dir][migrate_topic[dir]] << new_task
         end
@@ -196,7 +196,7 @@ module Migfrabench
     class Worker
       include Celluloid
       include Celluloid::Notifications
-      
+
       def initialize(msg_broker, migration_times)
         @communicator = Migfrabench::Communicator.new(msg_broker) unless msg_broker.nil?
         @work_done = Celluloid::Condition.new
@@ -223,21 +223,21 @@ module Migfrabench
 
         cur_dir, next_dir = :back, :forth
         timer = every(@period) do
-          # send request 
+          # send request
           migration_round(migration_tasks, cur_dir)
           cur_dir, next_dir = next_dir, cur_dir
           pb.increment
           puts ""
-       
+
           if (cur_rounds += 1) == @rounds
-            @work_done.signal 
+            @work_done.signal
           else
             CountDown.new(@period, "Next migration in").async.run
           end
         end
 
         # wait for work to be done
-        @work_done.wait 
+        @work_done.wait
         timer.cancel
 
         # shutdown the receiver when shure that the migration should be done
@@ -251,7 +251,7 @@ module Migfrabench
           messages.each do |message|
             message['id'] = SecureRandom.uuid
             @migration_times[message['id']] = ThreadSafe::Hash.new
-            @migration_times[message['id']][:start] = (Time.now.to_f*1000).to_i 
+            @migration_times[message['id']][:start] = (Time.now.to_f*1000).to_i
             @communicator.pub(message.to_yaml, topic)
             sleep 1
           end
@@ -267,7 +267,7 @@ module Migfrabench
 
       def run
         pb = ProgressBar.create(total: @timer, title: @title, format: '  %t: %B  %c/%C s')
-        (@timer-1).times do 
+        (@timer-1).times do
           pb.increment
           sleep 1
         end
@@ -284,12 +284,12 @@ module Migfrabench
       end
 
       def run
-        @timer = every(0.0001) do 
+        @timer = every(0.0001) do
           topic, message =  @communicator.recv
           unless (message.class == NilClass)
             msg_id = YAML.load(message)['id']
-            
-            @migration_times[msg_id][:stop] = (Time.now.to_f*1000).to_i 
+
+            @migration_times[msg_id][:stop] = (Time.now.to_f*1000).to_i
             @migration_times[msg_id][:msg] = message
           end
         end
@@ -310,7 +310,7 @@ module Migfrabench
         @done = false
         @log_dir = log_dir
         @run_once = run_once
-        
+
         subscribe(:migration_done, :shutdown)
       end
 
@@ -337,10 +337,10 @@ module Migfrabench
       private
       def execute(execution)
         runtime = 0
-        Net::SSH.start(@host, USER) do |session| 
+        Net::SSH.start(@host, USER) do |session|
           runtime = (Time.now.to_f*1000).to_i
-          output = session.exec!(@cmd) 
-          runtime = (Time.now.to_f*1000).to_i - runtime 
+          output = session.exec!(@cmd)
+          runtime = (Time.now.to_f*1000).to_i - runtime
           File.open("#{@log_dir}/#{@host}_output_#{execution}.dat", "wb") { |file| file.write(output)} unless @log_dir.nil?
           File.open("#{@log_dir}/#{@host}_runtime_#{execution}.dat", "wb") { |file| file.write(runtime)} unless @log_dir.nil?
         end
